@@ -15,9 +15,20 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        // Em produção, permite origens específicas (Netlify e localhost para desenvolvimento)
+        var allowedOrigins = new[]
+        {
+            "https://worshipad.netlify.app",
+            "https://worshipad.netlify.app/",
+            "http://localhost:5000",
+            "http://localhost:3000",
+            "http://127.0.0.1:5000"
+        };
+        
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials();
     });
 });
 

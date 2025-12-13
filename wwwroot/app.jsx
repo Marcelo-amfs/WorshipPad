@@ -7,9 +7,37 @@ const { useState, useEffect, useRef, useCallback } = React;
 
 /**
  * URL base da API do WorshipPad para comunicação com o backend.
+ * Detecta automaticamente se está em produção (Netlify) ou desenvolvimento.
+ * Em produção, usa a URL completa do backend configurada.
+ * Em desenvolvimento, usa caminho relativo.
  * @constant {string}
  */
-const API_BASE = '/api/WorshipPad';
+const API_BASE = (() => {
+    // Verifica se há uma variável global configurada (definida no index.html)
+    if (window.WORSHIP_PAD_API_URL) {
+        return window.WORSHIP_PAD_API_URL;
+    }
+    
+    // Detecta se está rodando no Netlify
+    const hostname = window.location.hostname;
+    const isNetlify = hostname.includes('netlify.app') || hostname.includes('netlify.com');
+    
+    if (isNetlify) {
+        // Em produção no Netlify, você precisa configurar a URL do seu backend
+        // Substitua pela URL do seu servidor backend em produção
+        // Exemplo: 'https://seu-backend.herokuapp.com/api/WorshipPad'
+        // ou 'https://api.worshipad.com/api/WorshipPad'
+        const defaultUrl = 'https://seu-backend-url.com/api/WorshipPad';
+        if (defaultUrl.includes('seu-backend-url.com')) {
+            console.warn('⚠️ ATENÇÃO: Configure a URL do backend no index.html ou app.jsx!');
+            console.warn('Edite wwwroot/index.html e defina window.WORSHIP_PAD_API_URL com a URL do seu backend.');
+        }
+        return defaultUrl;
+    }
+    
+    // Em desenvolvimento, usa caminho relativo
+    return '/api/WorshipPad';
+})();
 
 /**
  * Configuração das bandas do equalizador (10 bandas).
