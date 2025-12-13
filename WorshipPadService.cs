@@ -18,7 +18,9 @@ namespace WorshipPad
         /// <returns>Caminho completo do arquivo MP3 correspondente à chave.</returns>
         public string GetAudioFilePath(string key)
         {
-            return Path.Combine(basePath, key + ".mp3");
+            // Substitui '#' por 's' no nome do arquivo (ex: C# → Cs, F#m → Fsm)
+            string fileName = key.Replace("#", "s");
+            return Path.Combine(basePath, fileName + ".mp3");
         }
 
         /// <summary>

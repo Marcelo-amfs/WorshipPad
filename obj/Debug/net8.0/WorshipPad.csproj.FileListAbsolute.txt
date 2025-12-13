@@ -32,3 +32,4 @@ C:\Users\marce\Documents\Desenvolvimentos\C#\WorshipPad\WorshipPad\obj\Debug\net
 C:\Users\marce\Documents\Desenvolvimentos\C#\WorshipPad\WorshipPad\obj\Debug\net8.0\staticwebassets.build.json.cache
 C:\Users\marce\Documents\Desenvolvimentos\C#\WorshipPad\WorshipPad\obj\Debug\net8.0\staticwebassets.development.json
 C:\Users\marce\Documents\Desenvolvimentos\C#\WorshipPad\WorshipPad\obj\Debug\net8.0\staticwebassets.build.endpoints.json
+C:\Users\marce\Documents\Desenvolvimentos\C#\WorshipPad\WorshipPad\obj\Debug\net8.0\WorshipPad.sourcelink.json
