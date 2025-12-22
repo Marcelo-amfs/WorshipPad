@@ -8,7 +8,15 @@ using System.Net;
 /// </summary>
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // Configura para retornar JSON ao invés de HTML em erros de API
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            return new BadRequestObjectResult(new { error = "Requisição inválida", details = context.ModelState });
+        };
+    });
 builder.Services.AddSingleton<WorshipPadService>();
 
 builder.Services.AddCors(options =>
@@ -18,8 +26,8 @@ builder.Services.AddCors(options =>
         // Em produção, permite origens específicas (Netlify e localhost para desenvolvimento)
         var allowedOrigins = new[]
         {
-            "https://worshipad.versel.app",
-            "https://worshipad.versel.app/",
+            "https://worshipad.vercel.app",
+            "https://worshipad.vercel.app/",
             "http://localhost:5000",
             "http://localhost:3000",
             "http://127.0.0.1:5000"

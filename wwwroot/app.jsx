@@ -273,7 +273,18 @@ function useAudioPlayer() {
                 }
             });
 
-            const data = await response.json();
+            // Verificar se a resposta é JSON antes de fazer parse
+            const contentType = response.headers.get('content-type');
+            let data;
+            
+            if (contentType && contentType.includes('application/json')) {
+                data = await response.json();
+            } else {
+                // Se não for JSON, tentar ler como texto para debug
+                const text = await response.text();
+                console.error('Resposta não-JSON recebida:', text.substring(0, 200));
+                throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
+            }
 
             if (response.ok && data.audioUrl) {
                 initializeAudioContext();

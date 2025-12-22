@@ -2,34 +2,20 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace WorshipPad.Controllers
 {
-    /// <summary>
-    /// Controller responsável por gerenciar as requisições HTTP relacionadas ao WorshipPad.
-    /// Fornece endpoints para obter arquivos de áudio e validar chaves musicais.
-    /// </summary>
+    /// Controller responsável por gerenciar as requisições HTTP relacionadas ao WorshipPad. Fornece endpoints para obter arquivos de áudio e validar chaves musicais.
     [ApiController]
     [Route("api/[controller]")]
     public class WorshipPadController : ControllerBase
     {
-        /// <summary>
         /// Serviço utilizado para obter caminhos de arquivos de áudio.
-        /// </summary>
         private readonly WorshipPadService _worshipPadService;
 
-        /// <summary>
         /// Construtor do controller que recebe a dependência do serviço.
-        /// </summary>
-        /// <param name="worshipPadService">Instância do serviço WorshipPadService para gerenciar arquivos de áudio.</param>
         public WorshipPadController(WorshipPadService worshipPadService)
         {
             _worshipPadService = worshipPadService;
         }
-
-        /// <summary>
-        /// Endpoint GET para obter o arquivo de áudio correspondente a uma chave musical.
-        /// Suporta streaming com range requests para melhor performance.
-        /// </summary>
-        /// <param name="key">Chave musical no formato: C, C#, Cm, C#m (pode vir codificada como %23 para #).</param>
-        /// <returns>Arquivo de áudio MP3 ou erro HTTP apropriado.</returns>
+        /// Endpoint GET para obter o arquivo de áudio correspondente a uma chave musical. Suporta streaming com range requests para melhor performance.
         [HttpGet("audio/{key}")]
         public IActionResult GetAudioFile(string key)
         {
@@ -101,12 +87,7 @@ namespace WorshipPad.Controllers
             }
         }
 
-        /// <summary>
-        /// Endpoint POST para validar e preparar a reprodução de uma chave musical.
-        /// Retorna informações sobre o arquivo de áudio disponível, incluindo a URL para streaming.
-        /// </summary>
-        /// <param name="key">Chave musical no formato: C, C#, Cm, C#m (pode vir codificada como %23 para #).</param>
-        /// <returns>Objeto JSON com informações do arquivo de áudio ou erro HTTP apropriado.</returns>
+        /// Endpoint POST para validar e preparar a reprodução de uma chave musical. Retorna informações sobre o arquivo de áudio disponível, incluindo a URL para streaming.
         [HttpPost("play/{key}")]
         public IActionResult PlayKey(string key)
         {
