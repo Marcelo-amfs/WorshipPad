@@ -32,6 +32,8 @@ builder.Services.AddCors(options =>
         {
             "https://worshipad.vercel.app",
             "https://worshipad.vercel.app/",
+            "https://worshippad.up.railway.app",
+            "https://worshippad.up.railway.app/",
             "http://localhost:5000",
             "http://localhost:3000",
             "http://127.0.0.1:5000"
@@ -44,7 +46,11 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.WebHost.UseUrls("http://0.0.0.0:5000", "https://0.0.0.0:5001");
+// Configura URL baseada na variável de ambiente ASPNETCORE_URLS
+// Em produção (Railway, Render, etc.), use apenas HTTP (o proxy reverso lida com HTTPS)
+// Se ASPNETCORE_URLS não estiver definida, usa HTTP na porta 5000
+var port = Environment.GetEnvironmentVariable("PORT") ?? "5000";
+builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
 
