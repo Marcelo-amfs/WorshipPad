@@ -1,5 +1,6 @@
 ﻿using WorshipPad;
 using System.Net;
+using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
 /// Ponto de entrada da aplicação WorshipPad.
@@ -14,7 +15,10 @@ builder.Services.AddControllers()
         // Configura para retornar JSON ao invés de HTML em erros de API
         options.InvalidModelStateResponseFactory = context =>
         {
-            return new BadRequestObjectResult(new { error = "Requisição inválida", details = context.ModelState });
+            return new ObjectResult(new { error = "Requisição inválida", details = context.ModelState })
+            {
+                StatusCode = 400
+            };
         };
     });
 builder.Services.AddSingleton<WorshipPadService>();
@@ -50,6 +54,17 @@ app.UseStaticFiles();
 
 app.MapControllers();
 
+// Fallback específico para rotas de API - retorna JSON 404
+app.MapFallback("/api/{*path}", () =>
+{
+    return Results.Json(new
+    {
+        error = "Endpoint não encontrado",
+        message = "A rota da API solicitada não existe"
+    }, statusCode: 404);
+});
+
+// Fallback para rotas que não são API (SPA routing)
 app.MapFallbackToFile("index.html");
 
 app.Run();
