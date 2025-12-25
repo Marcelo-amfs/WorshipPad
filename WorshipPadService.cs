@@ -4,7 +4,18 @@ namespace WorshipPad
     public class WorshipPadService
     {
         /// Caminho base onde os arquivos de áudio (pads) estão armazenados.
-        private readonly string basePath = @"Pads\Shimmer\";
+        /// Usa Path.Combine para ser multiplataforma (Windows/Linux)
+        private readonly string basePath;
+
+        public WorshipPadService()
+        {
+            // Obtém o diretório base da aplicação (onde está o executável)
+            var appDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            
+            // Combina com o caminho relativo dos arquivos de áudio
+            // Funciona tanto em desenvolvimento quanto em produção
+            basePath = Path.Combine(appDirectory, "Pads", "Shimmer");
+        }
 
         /// Obtém o caminho completo do arquivo de áudio correspondente a uma chave musical.
         public string GetAudioFilePath(string key)
