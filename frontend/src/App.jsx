@@ -3,7 +3,8 @@
  * @fileoverview Componentes e hooks principais da aplicação
  */
 
-const { useState, useEffect, useRef, useCallback } = React;
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import './index.css';
 
 /**
  * URL base da API do WorshipPad para comunicação com o backend.
@@ -1617,15 +1618,4 @@ function App() {
     );
 }
 
-/**
- * Renderiza a aplicação React no elemento root do DOM.
- * Suporta tanto React 18+ (createRoot) quanto versões anteriores (render).
- */
-const container = document.getElementById('root');
-if (ReactDOM.createRoot) {
-    const root = ReactDOM.createRoot(container);
-    root.render(<App />);
-} else {
-    ReactDOM.render(<App />, container);
-}
-
+export default App;

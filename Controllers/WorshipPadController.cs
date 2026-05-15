@@ -1,161 +1,79 @@
+using System;
+using System.IO;
 using Microsoft.AspNetCore.Mvc;
+using WorshipPad.Interfaces;
+using WorshipPad.Models;
 
 namespace WorshipPad.Controllers
 {
-    /// Controller responsável por gerenciar as requisições HTTP relacionadas ao WorshipPad. Fornece endpoints para obter arquivos de áudio e validar chaves musicais.
     [ApiController]
     [Route("api/[controller]")]
     public class WorshipPadController : ControllerBase
     {
-        /// Serviço utilizado para obter caminhos de arquivos de áudio.
-        private readonly WorshipPadService _worshipPadService;
+        private readonly IWorshipPadService _worshipPadService;
 
-        /// Construtor do controller que recebe a dependência do serviço.
-        public WorshipPadController(WorshipPadService worshipPadService)
+        public WorshipPadController(IWorshipPadService worshipPadService)
         {
             _worshipPadService = worshipPadService;
         }
-        /// Endpoint GET para obter o arquivo de áudio correspondente a uma chave musical. Suporta streaming com range requests para melhor performance.
+
         [HttpGet("audio/{key}")]
+        [ProducesResponseType(typeof(FileResult), 200)]
+        [ProducesResponseType(typeof(ErrorResponse), 400)]
+        [ProducesResponseType(typeof(ErrorResponse), 404)]
+        [ResponseCache(Duration = 31536000, Location = ResponseCacheLocation.Any)]
         public IActionResult GetAudioFile(string key)
         {
             try
             {
                 key = Uri.UnescapeDataString(key);
-                
-                if (string.IsNullOrEmpty(key) || key.Length > 3)
-                {
-                    return BadRequest(new { error = "Chave inválida" });
-                }
-
-                string normalizedKey = key.ToUpper();
-                
-                if (normalizedKey.EndsWith("M") && normalizedKey.Length > 1)
-                {
-                    if (normalizedKey.Length == 2 && normalizedKey[1] == 'M')
-                    {
-                        normalizedKey = normalizedKey[0] + "m";
-                    }
-                    else if (normalizedKey.Length == 3 && normalizedKey[1] == '#' && normalizedKey[2] == 'M')
-                    {
-                        normalizedKey = normalizedKey.Substring(0, 2) + "m";
-                    }
-                }
-                
-                key = normalizedKey;
-                
-                bool isValid = false;
-                if (key.Length == 1)
-                {
-                    isValid = true;
-                }
-                else if (key.Length == 2)
-                {
-                    if (key[1] == '#' || key[1] == 'm')
-                    {
-                        isValid = true;
-                    }
-                }
-                else if (key.Length == 3)
-                {
-                    if (key[1] == '#' && key[2] == 'm')
-                    {
-                        isValid = true;
-                    }
-                }
+                var (isValid, normalizedKey) = _worshipPadService.NormalizeAndValidateKey(key);
                 
                 if (!isValid)
-                {
-                    return BadRequest(new { error = "Chave inválida" });
-                }
+                    return BadRequest(new ErrorResponse { Error = "Chave inválida" });
 
-                string filePath = _worshipPadService.GetAudioFilePath(key);
+                string filePath = _worshipPadService.GetAudioFilePath(normalizedKey);
                 
                 if (!System.IO.File.Exists(filePath))
-                {
-                    return NotFound(new { error = $"Arquivo não encontrado para a chave {key}" });
-                }
+                    return NotFound(new ErrorResponse { Error = $"Arquivo não encontrado para a chave {normalizedKey}" });
 
-                var fileBytes = System.IO.File.ReadAllBytes(filePath);
-                var contentType = "audio/mpeg";
-                
-                return File(fileBytes, contentType, enableRangeProcessing: true);
+                return PhysicalFile(filePath, "audio/mpeg", enableRangeProcessing: true);
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
+                return StatusCode(500, new ErrorResponse { Error = ex.Message });
             }
         }
 
-        /// Endpoint POST para validar e preparar a reprodução de uma chave musical. Retorna informações sobre o arquivo de áudio disponível, incluindo a URL para streaming.
         [HttpPost("play/{key}")]
+        [ProducesResponseType(typeof(PlayResponse), 200)]
+        [ProducesResponseType(typeof(ErrorResponse), 400)]
+        [ProducesResponseType(typeof(ErrorResponse), 404)]
         public IActionResult PlayKey(string key)
         {
             try
             {
                 key = Uri.UnescapeDataString(key);
-                
-                if (string.IsNullOrEmpty(key) || key.Length > 3)
-                {
-                    return BadRequest(new { error = "Chave inválida" });
-                }
-
-                string normalizedKey = key.ToUpper();
-                
-                if (normalizedKey.EndsWith("M") && normalizedKey.Length > 1)
-                {
-                    if (normalizedKey.Length == 2 && normalizedKey[1] == 'M')
-                    {
-                        normalizedKey = normalizedKey[0] + "m";
-                    }
-                    else if (normalizedKey.Length == 3 && normalizedKey[1] == '#' && normalizedKey[2] == 'M')
-                    {
-                        normalizedKey = normalizedKey.Substring(0, 2) + "m";
-                    }
-                }
-                
-                key = normalizedKey;
-                
-                bool isValid = false;
-                if (key.Length == 1)
-                {
-                    isValid = true;
-                }
-                else if (key.Length == 2)
-                {
-                    if (key[1] == '#' || key[1] == 'm')
-                    {
-                        isValid = true;
-                    }
-                }
-                else if (key.Length == 3)
-                {
-                    if (key[1] == '#' && key[2] == 'm')
-                    {
-                        isValid = true;
-                    }
-                }
+                var (isValid, normalizedKey) = _worshipPadService.NormalizeAndValidateKey(key);
                 
                 if (!isValid)
-                {
-                    return BadRequest(new { error = "Chave inválida" });
-                }
+                    return BadRequest(new ErrorResponse { Error = "Chave inválida" });
 
-                string filePath = _worshipPadService.GetAudioFilePath(key);
+                string filePath = _worshipPadService.GetAudioFilePath(normalizedKey);
+                
                 if (!System.IO.File.Exists(filePath))
-                {
-                    return NotFound(new { error = $"Arquivo não encontrado para a chave {key}" });
-                }
+                    return NotFound(new ErrorResponse { Error = $"Arquivo não encontrado para a chave {normalizedKey}" });
 
-                return Ok(new { 
-                    message = $"Arquivo disponível para {key}",
-                    audioUrl = $"/api/WorshipPad/audio/{key}",
-                    key = key
+                return Ok(new PlayResponse 
+                { 
+                    Message = $"Arquivo disponível para {normalizedKey}",
+                    AudioUrl = $"/api/WorshipPad/audio/{normalizedKey}",
+                    Key = normalizedKey
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { error = ex.Message });
+                return StatusCode(500, new ErrorResponse { Error = ex.Message });
             }
         }
     }
