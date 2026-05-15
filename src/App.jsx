@@ -70,6 +70,50 @@ const eqPresets = {
     treble: [-3, -2, -1, 0, 1, 2, 3, 4, 5, 6]
 };
 
+const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const baseFreqs = {
+    'C': 130.81, 'C#': 138.59, 'D': 146.83, 'D#': 155.56,
+    'E': 164.81, 'F': 174.61, 'F#': 185.00, 'G': 196.00,
+    'G#': 207.65, 'A': 220.00, 'A#': 233.08, 'B': 246.94
+};
+
+function getChordFrequencies(key) {
+    const isMinor = key.endsWith('m');
+    const rootNote = isMinor ? key.slice(0, -1) : key;
+    const rootIndex = noteNames.indexOf(rootNote);
+    
+    if (rootIndex === -1) return [];
+
+    const thirdIndex = (rootIndex + (isMinor ? 3 : 4)) % 12;
+    const fifthIndex = (rootIndex + 7) % 12;
+
+    const rootFreq = baseFreqs[rootNote];
+    const thirdFreq = baseFreqs[noteNames[thirdIndex]] * (thirdIndex < rootIndex ? 2 : 1);
+    const fifthFreq = baseFreqs[noteNames[fifthIndex]] * (fifthIndex < rootIndex ? 2 : 1);
+
+    return [
+        rootFreq / 2, // Grave (C2)
+        rootFreq,     // Tônica (C3)
+        thirdFreq,    // Terça
+        fifthFreq,    // Quinta (G3)
+        rootFreq * 2, // Oitava (C4)
+        fifthFreq * 2 // Oitava da Quinta (G4)
+    ];
+}
+
+function createReverbImpulse(context) {
+    const length = context.sampleRate * 4.0; // 4 segundos de reverb
+    const impulse = context.createBuffer(2, length, context.sampleRate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+    for (let i = 0; i < length; i++) {
+        const decay = Math.exp(-i / (context.sampleRate * 1.5));
+        left[i] = (Math.random() * 2 - 1) * decay;
+        right[i] = (Math.random() * 2 - 1) * decay;
+    }
+    return impulse;
+}
+
 /**
  * Hook personalizado para gerenciar reprodução de áudio com equalizador.
  * Gerencia o AudioContext, filtros de equalização, fade-in/out e controle de reprodução.
@@ -77,7 +121,12 @@ const eqPresets = {
  */
 function useAudioPlayer() {
     const audioContextRef = useRef(null);
-    const audioSourceRef = useRef(null);
+    const synthNodesRef = useRef({
+        oscillators: [],
+        masterGain: null,
+        reverb: null,
+        filter: null
+    });
     const gainNodeRef = useRef(null);
     const filtersRef = useRef([]);
     const fadeIntervalRef = useRef(null);
@@ -109,12 +158,12 @@ function useAudioPlayer() {
      * @param {Array<number>|null} initialValues - Valores iniciais de ganho para cada banda (opcional).
      */
     const initializeEqualizer = useCallback((initialValues = null) => {
-        if (!audioSourceRef.current || !audioContextRef.current) return;
+        if (!synthNodesRef.current.masterGain || !audioContextRef.current) return;
         if (filtersRef.current.length > 0) return;
 
         const valuesToUse = initialValues || eqValues;
 
-        let currentNode = audioSourceRef.current;
+        let currentNode = synthNodesRef.current.masterGain;
 
         eqBands.forEach((band, index) => {
             const filter = audioContextRef.current.createBiquadFilter();
@@ -172,7 +221,7 @@ function useAudioPlayer() {
      * Inicializa os filtros se necessário, ou apenas atualiza os valores existentes.
      */
     const applyEqualizer = useCallback(() => {
-        if (!audioSourceRef.current || !audioContextRef.current) return;
+        if (!synthNodesRef.current.masterGain || !audioContextRef.current) return;
         
         if (filtersRef.current.length === 0) {
             initializeEqualizer();
@@ -243,155 +292,150 @@ function useAudioPlayer() {
     }, []);
 
     /**
-     * Reproduz uma chave musical específica.
-     * Carrega o arquivo de áudio, aplica equalização e inicia a reprodução com fade-in.
-     * @param {string} key - Chave musical a ser reproduzida (ex: 'C', 'C#', 'Cm', 'C#m').
-     * @param {Function} onSuccess - Callback chamado quando a reprodução inicia com sucesso.
-     * @param {Function} onError - Callback chamado em caso de erro.
-     * @param {boolean} shouldStopOnSameKey - Se true, para a reprodução ao clicar na mesma chave novamente.
+     * Reproduz uma chave musical específica gerando os sons (Sintetizador).
      */
     const playKey = useCallback(async (key, onSuccess, onError, shouldStopOnSameKey = true) => {
         try {
-            if (key === currentKey && audioSourceRef.current && shouldStopOnSameKey) {
+            if (key === currentKey && isPlaying && shouldStopOnSameKey) {
                 await stop();
                 return;
             }
 
-            if (key === currentKey && audioSourceRef.current && !shouldStopOnSameKey) {
+            if (key === currentKey && isPlaying && !shouldStopOnSameKey) {
                 if (onSuccess) onSuccess(key);
                 return;
             }
 
-            if (audioSourceRef.current) {
+            if (isPlaying) {
                 await stop();
             }
 
-            // Obter URL do áudio
-            const response = await fetch(`${API_BASE}/play/${encodeURIComponent(key)}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                }
+            initializeAudioContext();
+            const ctx = audioContextRef.current;
+
+            // Limpar nodes anteriores
+            synthNodesRef.current.oscillators.forEach(osc => {
+                try { osc.stop(); osc.disconnect(); } catch(e){}
+            });
+            if (synthNodesRef.current.masterGain) synthNodesRef.current.masterGain.disconnect();
+            if (synthNodesRef.current.reverb) synthNodesRef.current.reverb.disconnect();
+            if (synthNodesRef.current.filter) synthNodesRef.current.filter.disconnect();
+
+            filtersRef.current.forEach(filter => {
+                try { filter.disconnect(); } catch (e) {}
+            });
+            filtersRef.current = [];
+
+            // Criar nós do sintetizador
+            const masterGain = ctx.createGain();
+            const filter = ctx.createBiquadFilter();
+            const reverb = ctx.createConvolver();
+            
+            reverb.buffer = createReverbImpulse(ctx);
+            
+            filter.type = 'lowpass';
+            filter.frequency.value = 800; // Tom quente e abafado
+            filter.Q.value = 1;
+
+            // Roteamento: Mix Seco (Gain) -> Filter -> EQ -> Saída
+            // Mix Molhado (Reverb) -> Filter -> EQ -> Saída
+            masterGain.connect(filter);
+            
+            const reverbGain = ctx.createGain();
+            reverbGain.gain.value = 0.6; // Nível do reverb
+            masterGain.connect(reverb);
+            reverb.connect(reverbGain);
+            reverbGain.connect(filter);
+
+            synthNodesRef.current = {
+                oscillators: [],
+                masterGain: masterGain,
+                reverb: reverb,
+                filter: filter
+            };
+
+            const freqs = getChordFrequencies(key);
+            if (freqs.length === 0) {
+                throw new Error("Chave inválida");
+            }
+
+            // Gerar osciladores para cada frequência do acorde
+            freqs.forEach((freq, i) => {
+                // Criamos dois osciladores por nota com uma leve desafinação (Chorus)
+                const osc1 = ctx.createOscillator();
+                const osc2 = ctx.createOscillator();
+                
+                // Sawtooth e Triangle juntos formam um som rico de pad
+                osc1.type = 'sawtooth';
+                osc2.type = 'triangle';
+                
+                osc1.frequency.value = freq;
+                osc2.frequency.value = freq;
+                
+                // Desafinação sutil para criar um som amplo e espesso
+                osc1.detune.value = 5;
+                osc2.detune.value = -5;
+
+                const oscGain = ctx.createGain();
+                // Baixar volume de frequências mais altas para não irritar
+                const volume = i === 0 ? 0.3 : (i > 3 ? 0.05 : 0.1); 
+                oscGain.gain.value = volume;
+
+                osc1.connect(oscGain);
+                osc2.connect(oscGain);
+                oscGain.connect(masterGain);
+
+                osc1.start();
+                osc2.start();
+
+                synthNodesRef.current.oscillators.push(osc1, osc2);
             });
 
-            // Verificar se a resposta é JSON antes de fazer parse
-            const contentType = response.headers.get('content-type');
-            let data;
+            // Conectar o filtro ao masterGain do sistema (onde aplica EQ e Fade)
+            // No initializeEqualizer, ele conecta o synthNodesRef.current.masterGain ao EQ
+            // Precisamos atualizar o initializeEqualizer para conectar o 'filter' final
+            synthNodesRef.current.masterGain = filter; // Trick para o initialize usar a saída do filtro
             
-            if (contentType && contentType.includes('application/json')) {
-                data = await response.json();
-            } else {
-                // Se não for JSON, tentar ler como texto para debug
-                const text = await response.text();
-                console.error('Resposta não-JSON recebida:', text.substring(0, 200));
-                throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
-            }
+            initializeEqualizer(eqValues);
+            gainNodeRef.current.gain.value = 0; // Prepara para fade in
 
-            if (response.ok && data.audioUrl) {
-                initializeAudioContext();
+            fadeIn(2000); // Pad tem fade in suave e longo
+            setCurrentKey(key);
+            setIsPlaying(true);
+            
+            if (onSuccess) onSuccess(key);
 
-                // Criar novo elemento de áudio
-                const audioUrl = `${API_BASE}/audio/${encodeURIComponent(key)}`;
-                const audio = new Audio(audioUrl);
-                audio.loop = true;
-
-                // Conectar ao AudioContext
-                audio.addEventListener('loadeddata', () => {
-                    try {
-                        // Criar source do AudioContext
-                        audioSourceRef.current = audioContextRef.current.createMediaElementSource(audio);
-                        
-                        // Armazenar referência ao elemento audio DEPOIS de criar o source
-                        audioSourceRef.current._audioElement = audio;
-
-                        // Limpar filtros antigos se existirem
-                        filtersRef.current.forEach(filter => {
-                            try {
-                                filter.disconnect();
-                            } catch (e) {}
-                        });
-                        filtersRef.current = [];
-
-                        // Inicializar equalizador com valores atuais
-                        initializeEqualizer(eqValues);
-
-                        // Configurar volume inicial para fade in
-                        gainNodeRef.current.gain.value = 0;
-
-                        // Reproduzir
-                        audio.play().then(() => {
-                            fadeIn(1500);
-                            setCurrentKey(key);
-                            setIsPlaying(true);
-                            if (onSuccess) onSuccess(key);
-                        }).catch(error => {
-                            console.error('Erro ao reproduzir:', error);
-                            // Limpar recursos
-                            if (audioSourceRef.current) {
-                                try {
-                                    audioSourceRef.current.disconnect();
-                                } catch (e) {}
-                                audioSourceRef.current = null;
-                            }
-                            setCurrentKey(null);
-                            setIsPlaying(false);
-                            if (onError) onError(new Error('Erro ao reproduzir áudio. Verifique as permissões do navegador.'));
-                        });
-                    } catch (error) {
-                        console.error('Erro ao criar MediaElementSource:', error);
-                        audioSourceRef.current = null;
-                        setCurrentKey(null);
-                        setIsPlaying(false);
-                        if (onError) onError(new Error('Erro ao inicializar áudio.'));
-                    }
-                });
-
-                audio.addEventListener('error', (e) => {
-                    console.error('Erro no áudio:', e);
-                    audioSourceRef.current = null;
-                    setCurrentKey(null);
-                    setIsPlaying(false);
-                    if (onError) onError(new Error('Erro ao carregar áudio'));
-                });
-            } else {
-                const errorMsg = data.error || 'Erro ao tocar';
-                if (onError) onError(new Error(errorMsg));
-            }
         } catch (error) {
             console.error('Erro:', error);
             if (onError) onError(error);
         }
-    }, [currentKey, initializeAudioContext, applyEqualizer, fadeIn]);
+    }, [currentKey, isPlaying, initializeAudioContext, applyEqualizer, fadeIn]);
 
     /**
      * Para a reprodução de áudio atual.
      * Aplica fade-out, pausa o elemento de áudio e limpa todos os recursos.
-     * @returns {Promise} Promise que resolve quando a parada é concluída.
      */
     const stop = useCallback(async () => {
-        if (audioSourceRef.current && audioSourceRef.current._audioElement) {
-            await fadeOut(1000);
-            audioSourceRef.current._audioElement.pause();
-            audioSourceRef.current._audioElement.currentTime = 0;
-            audioSourceRef.current._audioElement = null;
+        if (!isPlaying) return;
+        
+        await fadeOut(1500); // Fade out longo e suave
+        
+        synthNodesRef.current.oscillators.forEach(osc => {
+            try { 
+                osc.stop(); 
+                osc.disconnect(); 
+            } catch(e){}
+        });
+        
+        if (synthNodesRef.current.masterGain) {
+            try { synthNodesRef.current.masterGain.disconnect(); } catch(e){}
         }
-
-        // Desconectar e limpar
-        if (audioSourceRef.current) {
-            try {
-                audioSourceRef.current.disconnect();
-            } catch (e) {}
-            audioSourceRef.current = null;
-        }
-
+        
         filtersRef.current.forEach(filter => {
-            try {
-                filter.disconnect();
-            } catch (e) {}
+            try { filter.disconnect(); } catch (e) {}
         });
         filtersRef.current = [];
 
-        // Limpar transição se estiver ativa
         if (transitionIntervalRef.current) {
             clearInterval(transitionIntervalRef.current);
             transitionIntervalRef.current = null;
@@ -399,7 +443,7 @@ function useAudioPlayer() {
 
         setCurrentKey(null);
         setIsPlaying(false);
-    }, [fadeOut]);
+    }, [fadeOut, isPlaying]);
 
     /**
      * Efeito que aplica a equalização sempre que os valores mudarem.
