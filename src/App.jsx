@@ -84,15 +84,38 @@ function App() {
     const [currentSongIndex, setCurrentSongIndex] = useState(-1);
     
     const [showMixer, setShowMixer] = useState(false);
+    const defaultVolumes = {
+        "Agudo": 30,
+        "Ambiente Worship 1": 35,
+        "Ambiente Worship 2": 15,
+        "Ambrose": 10,
+        "Angels": 40,
+        "Atmospheric": 90,
+        "Cathedral": 50,
+        "Cinematic": 55,
+        "Continuous": 65,
+        "Evolving": 90,
+        "Grave": 65,
+        "Guitar": 55,
+        "Hillsong": 50,
+        "Motion 1": 30,
+        "Motion 2": 40,
+        "Organ Choir": 30,
+        "Organ": 55,
+        "Rhodes Shimmer": 25,
+        "Shimmer": 40,
+        "Shimmery": 80,
+        "Shiny": 75,
+        "Solutions": 40,
+        "Stout Creek": 55,
+        "Verb": 75,
+        "Warm": 40
+    };
+
     const [layerVolumes, setLayerVolumes] = useState(() => {
-        const saved = localStorage.getItem('padLayers');
+        const saved = localStorage.getItem('padLayers_v3');
         if (saved) return JSON.parse(saved);
-        const initial = {};
-        Object.keys(layerDefs).forEach(k => initial[k] = 0);
-        initial["Warm"] = 60;
-        initial["Ambiente Worship 1"] = 50;
-        initial["Grave"] = 70;
-        return initial;
+        return defaultVolumes;
     });
 
     const audioCtxRef = useRef(null);
@@ -100,12 +123,13 @@ function App() {
         oscillators: [],
         layerGains: {},
         masterGain: null,
-        filter: null
+        audioElements: [] // Store active HTMLAudioElements
     });
 
-    // Atualiza os volumes dinamicamente em tempo real
     useEffect(() => {
-        localStorage.setItem('padLayers', JSON.stringify(layerVolumes));
+        localStorage.setItem('padLayers_v3', JSON.stringify(layerVolumes));
+        
+        // 1. Atualizar ganho dos Osciladores Web Audio API
         if (nodesRef.current.layerGains && audioCtxRef.current) {
             const now = audioCtxRef.current.currentTime;
             Object.entries(layerVolumes).forEach(([name, vol]) => {
@@ -114,21 +138,78 @@ function App() {
                 }
             });
         }
-    }, [layerVolumes]);
+        
+        // 2. Atualizar ou carregar os Samplers MP3
+        if (!currentKey) return;
+        
+        const rootNote = currentKey.replace('m', '');
+        const urlNote = rootNote.replace('#', '%23');
+
+        Object.entries(layerVolumes).forEach(([layerName, vol]) => {
+            let existingItem = nodesRef.current.audioElements.find(i => i.layer === layerName && !i.isFadingOut);
+            
+            if (existingItem) {
+                existingItem.targetVolume = vol;
+                existingItem.audio.volume = vol / 100;
+            } else if (vol > 0) {
+                // Instancia o áudio sob demanda (Lazy Load)
+                const slug = layerName.toLowerCase().replace(/ /g, '-');
+                const url = `https://tocandofacil.com.br/padworship/padworship/${urlNote}/${urlNote}-${slug}.mp3`;
+                const audio = new Audio(url);
+                audio.loop = true;
+                audio.volume = vol / 100;
+                audio.play().catch(e => console.log("Erro no MP3, o Synth nativo segurará o som.", e));
+                
+                nodesRef.current.audioElements.push({
+                    key: currentKey,
+                    layer: layerName,
+                    audio: audio,
+                    targetVolume: vol,
+                    isFadingOut: false
+                });
+            }
+        });
+    }, [layerVolumes, currentKey]);
 
     const stopSound = useCallback(() => {
-        if (!nodesRef.current.masterGain) return;
-        const gain = nodesRef.current.masterGain.gain;
-        const now = audioCtxRef.current.currentTime;
+        // Stop Oscillators
+        if (nodesRef.current.masterGain && audioCtxRef.current) {
+            const gain = nodesRef.current.masterGain.gain;
+            const now = audioCtxRef.current.currentTime;
+            gain.cancelScheduledValues(now);
+            gain.setValueAtTime(gain.value, now);
+            gain.exponentialRampToValueAtTime(0.0001, now + 2);
+            
+            const oscs = nodesRef.current.oscillators;
+            setTimeout(() => {
+                oscs.forEach(oData => { try { oData.osc.stop(); oData.osc.disconnect(); } catch (e) { } });
+            }, 2100);
+        }
 
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(gain.value, now);
-        gain.exponentialRampToValueAtTime(0.0001, now + 2);
+        // Stop MP3s
+        const audiosToStop = nodesRef.current.audioElements;
+        nodesRef.current.audioElements = []; 
+        
+        audiosToStop.forEach(item => item.isFadingOut = true);
 
-        const oscs = nodesRef.current.oscillators;
-        setTimeout(() => {
-            oscs.forEach(oData => { try { oData.osc.stop(); oData.osc.disconnect(); } catch (e) { } });
-        }, 2100);
+        // Fade out de 2.5 segundos macio
+        let fadeVol = 1.0;
+        const fadeInterval = setInterval(() => {
+            fadeVol -= 0.05;
+            if (fadeVol <= 0) {
+                clearInterval(fadeInterval);
+                audiosToStop.forEach(item => {
+                    item.audio.pause();
+                    item.audio.src = ""; 
+                });
+            } else {
+                audiosToStop.forEach(item => {
+                    try {
+                        item.audio.volume = (item.targetVolume / 100) * fadeVol;
+                    } catch(e) {}
+                });
+            }
+        }, 125);
 
         setCurrentKey(null);
         setCurrentSongIndex(-1);
@@ -168,7 +249,7 @@ function App() {
         const thirdFreq = chord[1].frequency;
         const fifthFreq = chord[2].frequency;
 
-        // Se JÁ ESTIVER TOCANDO, faz GLIDE/PORTAMENTO em todos os osciladores!
+        // Se já estiver tocando, faz Glide do sintetizador
         if (currentKey && nodesRef.current.oscillators && nodesRef.current.oscillators.length > 0) {
             nodesRef.current.oscillators.forEach(oData => {
                 let baseFreq = oData.isRoot ? rootFreq : (oData.isThird ? thirdFreq : fifthFreq);
@@ -179,21 +260,22 @@ function App() {
                     oData.osc.frequency.exponentialRampToValueAtTime(targetFreq, now + 1.2);
                 }
             });
-            setCurrentKey(fullKey);
-            return; 
+            // O MP3 fará crossfade logo abaixo, mesmo durante glide de synth, para manter a textura fluída.
         }
 
-        if (currentKey) { stopSound(); } // Fallback
+        if (currentKey) {
+            stopSound(); // Fade-out old MP3s and Synths
+        }
 
+        // Setup Web Audio Synthesizers (Native Fallback/Layer)
         const masterGain = ctx.createGain();
         masterGain.gain.setValueAtTime(0.0001, now);
 
         const filter = ctx.createBiquadFilter();
         filter.type = 'lowpass';
-        filter.frequency.value = 2000; // Valor fixo confortável sem o brilho slider
+        filter.frequency.value = 2000;
         filter.Q.value = 0.2;
         
-        // Compressor pesado para aguentar infinitos pads juntos sem estourar
         const compressor = ctx.createDynamicsCompressor();
         compressor.threshold.value = -24;
         compressor.knee.value = 30;
@@ -208,7 +290,6 @@ function App() {
         const newOscs = [];
         const layerGains = {};
 
-        // Cria os nós para cada layer da lista
         Object.entries(layerDefs).forEach(([layerName, def]) => {
             const layerGain = ctx.createGain();
             layerGain.gain.value = (layerVolumes[layerName] || 0) / 100;
@@ -227,7 +308,7 @@ function App() {
             [
                 { freq: rootFreq, isRoot: true },
                 { freq: thirdFreq, isThird: true },
-                { freq: fifthFreq, isFifth: false } // Fifth
+                { freq: fifthFreq, isFifth: false }
             ].forEach(note => {
                 const osc = ctx.createOscillator();
                 osc.type = def.type;
@@ -244,20 +325,62 @@ function App() {
             });
         });
 
+        masterGain.gain.exponentialRampToValueAtTime(1.0, now + 3.0);
+
+        // Setup MP3 Samplers
+        const newAudios = [];
+        const urlNote = keyNote.replace('#', '%23');
+        
+        Object.entries(layerVolumes).forEach(([layerName, vol]) => {
+            if (vol > 0) {
+                const slug = layerName.toLowerCase().replace(/ /g, '-');
+                const url = `https://tocandofacil.com.br/padworship/padworship/${urlNote}/${urlNote}-${slug}.mp3`;
+                
+                const audio = new Audio(url);
+                audio.loop = true;
+                audio.volume = 0; 
+                audio.play().catch(e => console.log("Sem áudio"));
+                
+                newAudios.push({
+                    key: fullKey,
+                    layer: layerName,
+                    audio: audio,
+                    targetVolume: vol,
+                    isFadingOut: false
+                });
+            }
+        });
+
         nodesRef.current = {
             oscillators: newOscs,
             layerGains: layerGains,
             masterGain: masterGain,
-            filter: filter
+            filter: filter,
+            audioElements: newAudios
         };
+        
+        // Fade in MP3s
+        let fadeVol = 0.0;
+        const fadeInterval = setInterval(() => {
+            fadeVol += 0.05;
+            if (fadeVol >= 1.0) {
+                clearInterval(fadeInterval);
+            }
+            newAudios.forEach(item => {
+                if(!item.isFadingOut) {
+                    try {
+                        item.audio.volume = (item.targetVolume / 100) * Math.min(fadeVol, 1.0);
+                    } catch(e){}
+                }
+            });
+        }, 150);
 
-        masterGain.gain.exponentialRampToValueAtTime(1.0, now + 3.0);
         setCurrentKey(fullKey);
     }, [currentKey, isMinor, layerVolumes, stopSound]);
 
     // Transição suave (Pitch Bend) da Terça ao alternar Maior/Menor
     useEffect(() => {
-        if (currentKey && audioCtxRef.current && nodesRef.current.oscillators.length > 0) {
+        if (currentKey && audioCtxRef.current && nodesRef.current.oscillators && nodesRef.current.oscillators.length > 0) {
             const now = audioCtxRef.current.currentTime;
             const rootNote = currentKey.replace('m', '');
             const chord = createChord(rootNote, isMinor);
@@ -283,7 +406,10 @@ function App() {
                 <div className="glass-panel">
                     <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center', marginBottom: '1vh' }}>
                         <h2 className="title" style={{ fontSize: 'clamp(14px, 2.5vh, 18px)', margin: 0 }}>Mixer de Timbres</h2>
-                        <button className="remove-song" onClick={() => setShowMixer(false)}>✕</button>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button className="remove-song" style={{ fontSize: '12px', width: 'auto', padding: '5px 10px', borderRadius: '4px', background: 'rgba(255, 255, 255, 0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)' }} onClick={() => setLayerVolumes(defaultVolumes)}>Reset Padrão</button>
+                            <button className="remove-song" onClick={() => setShowMixer(false)}>✕</button>
+                        </div>
                     </div>
                     
                     <div style={{ flex: 1, width: '100%', overflowY: 'auto', paddingRight: '10px', minHeight: 0 }}>
