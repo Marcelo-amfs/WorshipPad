@@ -158,7 +158,11 @@ function App() {
                 const audio = new Audio(url);
                 audio.loop = true;
                 audio.volume = vol / 100;
-                audio.play().catch(e => console.log("Erro no MP3, o Synth nativo segurará o som.", e));
+                audio.load();
+                const p = audio.play();
+                if(p !== undefined) {
+                    p.catch(e => console.log("Bloqueio de auto-play mobile. O Synth nativo continuará.", e));
+                }
                 
                 nodesRef.current.audioElements.push({
                     key: currentKey,
@@ -234,6 +238,9 @@ function App() {
             audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
         }
         const ctx = audioCtxRef.current;
+        if (ctx.state === 'suspended') {
+            ctx.resume();
+        }
         const now = ctx.currentTime;
 
         const applyMinor = forceMinor !== null ? forceMinor : isMinor;
@@ -339,7 +346,11 @@ function App() {
                 const audio = new Audio(url);
                 audio.loop = true;
                 audio.volume = 0; 
-                audio.play().catch(e => console.log("Sem áudio"));
+                audio.load();
+                const p = audio.play();
+                if(p !== undefined) {
+                    p.catch(e => console.log("Sem áudio MP3 no mobile"));
+                }
                 
                 newAudios.push({
                     key: fullKey,
