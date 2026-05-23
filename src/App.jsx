@@ -87,7 +87,7 @@ export default function App() {
     const [currentSongIndex, setCurrentSongIndex] = useState(-1);
     const [mobileTab, setMobileTab] = useState('pads');
     const [layerVolumes, setLayerVolumes] = useState(() => {
-        const saved = localStorage.getItem('padLayers_v3');
+        const saved = localStorage.getItem('padLayers_v4');
         return saved ? JSON.parse(saved) : defaultVolumes;
     });
 
@@ -96,7 +96,7 @@ export default function App() {
 
     // Sync volumes to live audio nodes
     useEffect(() => {
-        localStorage.setItem('padLayers_v3', JSON.stringify(layerVolumes));
+        localStorage.setItem('padLayers_v4', JSON.stringify(layerVolumes));
         if (nodesRef.current.layerGains && audioCtxRef.current) {
             const now = audioCtxRef.current.currentTime;
             Object.entries(layerVolumes).forEach(([name, vol]) => {
@@ -130,9 +130,9 @@ export default function App() {
             const now = audioCtxRef.current.currentTime;
             gain.cancelScheduledValues(now);
             gain.setValueAtTime(gain.value, now);
-            gain.exponentialRampToValueAtTime(0.0001, now + 2);
+            gain.exponentialRampToValueAtTime(0.0001, now + 1.5);
             const oscs = nodesRef.current.oscillators;
-            setTimeout(() => oscs.forEach(d => { try { d.osc.stop(); d.osc.disconnect(); } catch {}  }), 2100);
+            setTimeout(() => oscs.forEach(d => { try { d.osc.stop(); d.osc.disconnect(); } catch {}  }), 1600);
         }
         const audiosToStop = nodesRef.current.audioElements;
         nodesRef.current.audioElements = [];
@@ -146,7 +146,7 @@ export default function App() {
             } else {
                 audiosToStop.forEach(item => { try { item.audio.volume = (item.targetVolume / 100) * fadeVol; } catch {} });
             }
-        }, 125);
+        }, 75);
         setCurrentKey(null);
         setCurrentSongIndex(-1);
     }, []);
@@ -166,17 +166,6 @@ export default function App() {
         const chord = createChord(keyNote, applyMinor);
         const [rootFreq, thirdFreq, fifthFreq] = chord.map(c => c.frequency);
 
-        if (currentKey && nodesRef.current.oscillators.length > 0) {
-            nodesRef.current.oscillators.forEach(oData => {
-                const base = oData.isRoot ? rootFreq : (oData.isThird ? thirdFreq : fifthFreq);
-                const target = base * Math.pow(2, oData.octave);
-                if (oData.osc?.frequency) {
-                    oData.osc.frequency.cancelScheduledValues(now);
-                    oData.osc.frequency.setValueAtTime(oData.osc.frequency.value, now);
-                    oData.osc.frequency.exponentialRampToValueAtTime(target, now + 1.2);
-                }
-            });
-        }
         if (currentKey) stopSound();
 
         const masterGain = ctx.createGain();
@@ -212,7 +201,7 @@ export default function App() {
                 newOscs.push({ osc, octave: def.octave || 0, isRoot: n.isRoot, isThird: n.isThird });
             });
         });
-        masterGain.gain.exponentialRampToValueAtTime(1.0, now + 3.0);
+        masterGain.gain.exponentialRampToValueAtTime(1.0, now + 1.0);
 
         const urlNote = keyNote.replace('#', 'sus');
         const newAudios = [];
@@ -232,7 +221,7 @@ export default function App() {
             fadeVol = Math.min(fadeVol + 0.05, 1);
             newAudios.forEach(item => { if (!item.isFadingOut) try { item.audio.volume = (item.targetVolume / 100) * fadeVol; } catch {} });
             if (fadeVol >= 1) clearInterval(iv);
-        }, 150);
+        }, 50);
         setCurrentKey(fullKey);
     }, [currentKey, isMinor, layerVolumes, stopSound]);
 
@@ -277,7 +266,7 @@ export default function App() {
     };
 
     return (
-        <div className="app-layout">
+        <div className={`app-layout tab-context--${mobileTab}`}>
 
             {/* ── MAIN AREA ── */}
             <main className={`main-area glass-panel tab-panel ${mobileTab === 'pads' ? 'tab-active' : ''}`}>
@@ -444,7 +433,7 @@ export default function App() {
             {/* ── MOBILE NAV TABS ── */}
             <nav className="mobile-nav" role="tablist">
                 {[
-                    { id: 'pads', icon: '🎹', label: 'Teclas' },
+                    { id: 'pads', icon: '🎹', label: 'Pads' },
                     { id: 'mixer', icon: '🎚️', label: 'Mixer' },
                     { id: 'playlist', icon: '📋', label: 'Setlist' },
                 ].map(tab => (
